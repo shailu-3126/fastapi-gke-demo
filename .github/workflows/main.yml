@@ -1,0 +1,39 @@
+name: Deploy FastAPI to GKE
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: test-kumar-makala
+          service_account_key: ${{ secrets.GCP_KEY }}
+          export_default_credentials: true
+
+      - name: Configure Docker authentication
+        run: gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE="asia-south1-docker.pkg.dev/test-kumar-makala/fastapi-repo/fastapi-app:latest"
+          docker build -t $IMAGE .
+          docker push $IMAGE
+
+      - name: Get GKE credentials
+        run: gcloud container clusters get-credentials gke-cluster --region=asia-south1
+
+      - name: Deploy to GKE
+        run: |
+          kubectl apply -f app/deployment.yaml
+          kubectl apply -f app/service.yaml
+          kubectl rollout status deployment/fastapi-deployment
