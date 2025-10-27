@@ -1,45 +1,76 @@
-name: Deploy FastAPI to GKE
+name: Deploy FastAPI App to GKE
 
 on:
   push:
     branches:
       - main
 
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GAR_LOCATION: asia-south1        # Change if your Artifact Registry is in a different region
+  REPOSITORY: nginx-repo           # Artifact Registry repo name
+  IMAGE: fastapi-demo              # Your image name
+  CLUSTER_NAME: fastapi-gke-cluster # Your GKE cluster name
+  GKE_ZONE: asia-south1-a          # Zone where your GKE cluster is deployed
+
 jobs:
   deploy:
+    name: Build, Push, and Deploy to GKE
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout the repo
-    - name: Checkout code
+    # ------------------------
+    # 1️⃣ Checkout Code
+    # ------------------------
+    - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 2️⃣ Setup gcloud CLI
+    # ------------------------
+    # 2️⃣ Authenticate to Google Cloud
+    # ------------------------
+    - name: Set up gcloud auth
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    # ------------------------
+    # 3️⃣ Set up gcloud SDK
+    # ------------------------
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v2
       with:
-        project_id: ${{ secrets.GCP_PROJECT }}
-        service_account_key: ${{ secrets.GCP_CREDENTIALS }}
+        project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-    # 3️⃣ Configure Docker to use GCP Artifact Registry
+    # ------------------------
+    # 4️⃣ Configure Docker to use Artifact Registry
+    # ------------------------
     - name: Configure Docker for Artifact Registry
-      run: gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+      run: |
+        gcloud auth configure-docker $GAR_LOCATION-docker.pkg.dev --quiet
 
-    # 4️⃣ Build and push Docker image
+    # ------------------------
+    # 5️⃣ Build and Push Docker Image
+    # ------------------------
     - name: Build and Push Docker image
       run: |
-        IMAGE="asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/nginx-repo/fastapi-demo:${{ github.sha }}"
-        docker build -t $IMAGE .
-        docker push $IMAGE
-        echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+        IMAGE_URI="$GAR_LOCATION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/$IMAGE:${GITHUB_SHA}"
+        echo "Building image: $IMAGE_URI"
+        docker build -t $IMAGE_URI .
+        docker push $IMAGE_URI
+        echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
-    # 5️⃣ Get GKE credentials
+    # ------------------------
+    # 6️⃣ Connect to GKE Cluster
+    # ------------------------
     - name: Get GKE credentials
-      run: gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER }} --zone ${{ secrets.GKE_ZONE }}
-
-    # 6️⃣ Deploy to GKE
-    - name: Deploy FastAPI app to GKE
       run: |
-        kubectl set image deployment/fastapi-deployment fastapi-container=$IMAGE || kubectl apply -f app/deployment.yaml
-        kubectl apply -f app/service.yaml
-        kubectl rollout status deployment/fastapi-deployment
+        gcloud container clusters get-credentials $CLUSTER_NAME --zone $GKE_ZONE --project $PROJECT_ID
+
+    # ------------------------
+    # 7️⃣ Deploy to GKE
+    # ------------------------
+    - name: Deploy to GKE
+      run: |
+        kubectl set image deployment/fastapi-deployment fastapi-container=$IMAGE_URI --namespace default
+        kubectl rollout status deployment/fastapi-deployment --namespace default
+
