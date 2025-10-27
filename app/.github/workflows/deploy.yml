@@ -1,0 +1,42 @@
+name: Deploy to GKE
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GKE_CLUSTER: ${{ secrets.GKE_CLUSTER_NAME }}
+  GKE_REGION: ${{ secrets.GCP_REGION }}
+  IMAGE: asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/nginx-repo/fastapi-demo:${{ github.sha }}
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up gcloud CLI
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        service_account_key: ${{ secrets.GCP_SA_KEY }}
+        project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+    - name: Configure Docker
+      run: gcloud auth configure-docker $GKE_REGION-docker.pkg.dev --quiet
+
+    - name: Build and push Docker image
+      run: |
+        docker build -t $IMAGE .
+        docker push $IMAGE
+
+    - name: Get GKE credentials
+      run: gcloud container clusters get-credentials $GKE_CLUSTER --region $GKE_REGION
+
+    - name: Deploy to GKE
+      run: |
+        kubectl set image deployment/fastapi-demo fastapi-demo=$IMAGE || kubectl apply -f deployment.yaml
+        kubectl apply -f service.yaml
