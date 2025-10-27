@@ -1,9 +1,15 @@
-name: Deploy FastAPI to GKE
+name: Deploy to GKE
 
 on:
   push:
     branches:
       - main
+
+env:
+  PROJECT_ID: test-kumar-makala
+  GKE_CLUSTER: fastapi-cluster
+  GKE_ZONE: asia-south1-a
+  IMAGE: asia-south1-docker.pkg.dev/test-kumar-makala/fastapi-repo/fastapi-app:latest
 
 jobs:
   deploy:
@@ -13,27 +19,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: test-kumar-makala
-          service_account_key: ${{ secrets.GCP_KEY }}
-          export_default_credentials: true
+          project_id: ${{ env.PROJECT_ID }}
 
-      - name: Configure Docker authentication
+      - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
 
       - name: Build and push Docker image
         run: |
-          IMAGE="asia-south1-docker.pkg.dev/test-kumar-makala/fastapi-repo/fastapi-app:latest"
           docker build -t $IMAGE .
           docker push $IMAGE
 
       - name: Get GKE credentials
-        run: gcloud container clusters get-credentials gke-cluster --region=asia-south1
+        run: gcloud container clusters get-credentials $GKE_CLUSTER --zone $GKE_ZONE --project $PROJECT_ID
 
       - name: Deploy to GKE
         run: |
-          kubectl apply -f app/deployment.yaml
-          kubectl apply -f app/service.yaml
+          kubectl apply -f k8s/
           kubectl rollout status deployment/fastapi-deployment
