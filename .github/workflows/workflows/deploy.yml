@@ -1,0 +1,45 @@
+name: Deploy FastAPI to GKE
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1️⃣ Checkout the repo
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 2️⃣ Setup gcloud CLI
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: ${{ secrets.GCP_PROJECT }}
+        service_account_key: ${{ secrets.GCP_CREDENTIALS }}
+
+    # 3️⃣ Configure Docker to use GCP Artifact Registry
+    - name: Configure Docker for Artifact Registry
+      run: gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+
+    # 4️⃣ Build and push Docker image
+    - name: Build and Push Docker image
+      run: |
+        IMAGE="asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/nginx-repo/fastapi-demo:${{ github.sha }}"
+        docker build -t $IMAGE .
+        docker push $IMAGE
+        echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+    # 5️⃣ Get GKE credentials
+    - name: Get GKE credentials
+      run: gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER }} --zone ${{ secrets.GKE_ZONE }}
+
+    # 6️⃣ Deploy to GKE
+    - name: Deploy FastAPI app to GKE
+      run: |
+        kubectl set image deployment/fastapi-deployment fastapi-container=$IMAGE || kubectl apply -f app/deployment.yaml
+        kubectl apply -f app/service.yaml
+        kubectl rollout status deployment/fastapi-deployment
